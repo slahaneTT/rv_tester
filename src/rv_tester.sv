@@ -34,31 +34,37 @@ module rv_tester
   logic rv_tester_reset = '1;
   assign rv_tester_reset_ = rv_tester_reset;
 
+  // clock_mode 0 selects CLOCK_FREQ_MHZ; clock_mode N selects PROFILE<N>_CLOCK_FREQ_MHZ.
+  localparam int unsigned NUM_CLK_MODES = NUM_CLK_PROFILES + 1;
+  localparam int unsigned CLK_MODE_W    = $clog2(NUM_CLK_MODES);
+
   /* verilator lint_off UNOPTFLAT */
-  logic [2:0] clock_mode = 3'b000;
+  logic [CLK_MODE_W-1:0] clock_mode = '0;
   /* verilator lint_on UNOPTFLAT */
-  logic  def_clk      [NCLKS-1:0];
-  logic  profile1_clk [NCLKS-1:0];
-  logic  profile2_clk [NCLKS-1:0];
-  logic  profile3_clk [NCLKS-1:0];
-  logic  profile4_clk [NCLKS-1:0];
-  logic  profile5_clk [NCLKS-1:0];
-  logic  profile6_clk [NCLKS-1:0];
+  wire  [NUM_CLK_MODES-1:0] mode_clks [NCLKS-1:0];
 
   bit rvt_reload_d1, rvt_reload_d2;
 
   logic fastest_clk;
-  localparam bit [6:0][NCLKS-1:0][31:0] ALL_PROFILE_FREQS = {
-                                                             PROFILE1_CLOCK_FREQ_MHZ,
-                                                             PROFILE2_CLOCK_FREQ_MHZ,
-                                                             PROFILE3_CLOCK_FREQ_MHZ,
-                                                             PROFILE4_CLOCK_FREQ_MHZ,
-                                                             PROFILE5_CLOCK_FREQ_MHZ,
+  // Indexed by clock_mode.
+  localparam bit [NUM_CLK_MODES-1:0][NCLKS-1:0][31:0] ALL_PROFILE_FREQS = {
+                                                             PROFILE13_CLOCK_FREQ_MHZ,
+                                                             PROFILE12_CLOCK_FREQ_MHZ,
+                                                             PROFILE11_CLOCK_FREQ_MHZ,
+                                                             PROFILE10_CLOCK_FREQ_MHZ,
+                                                             PROFILE9_CLOCK_FREQ_MHZ,
+                                                             PROFILE8_CLOCK_FREQ_MHZ,
+                                                             PROFILE7_CLOCK_FREQ_MHZ,
                                                              PROFILE6_CLOCK_FREQ_MHZ,
+                                                             PROFILE5_CLOCK_FREQ_MHZ,
+                                                             PROFILE4_CLOCK_FREQ_MHZ,
+                                                             PROFILE3_CLOCK_FREQ_MHZ,
+                                                             PROFILE2_CLOCK_FREQ_MHZ,
+                                                             PROFILE1_CLOCK_FREQ_MHZ,
                                                              CLOCK_FREQ_MHZ
                                                              };
 
-  function automatic int unsigned find_overall_max_freq(bit [6:0][NCLKS-1:0][31:0] all_freqs);
+  function automatic int unsigned find_overall_max_freq(bit [NUM_CLK_MODES-1:0][NCLKS-1:0][31:0] all_freqs);
     int unsigned max_val = 0;
     foreach (all_freqs[i, j]) begin
       if (all_freqs[i][j] > max_val) begin
@@ -92,18 +98,12 @@ module rv_tester
       end else if (c == TB_CLK_IDX ) begin
         rv_tester_clkgen #(.CLOCK_FREQ_MHZ(CLOCK_FREQ_MHZ[TB_CLK_IDX]), .FASTEST_FREQ_MHZ(max_clock_freq_overall)) clkgen(.clk(clk[TB_CLK_IDX]), .fastest_clk(fastest_clk));
       end else begin
-        rv_tester_clkgen #(.CLOCK_FREQ_MHZ(CLOCK_FREQ_MHZ[c]), .FASTEST_FREQ_MHZ(max_clock_freq_overall)) clkgen(.clk(def_clk[c]), .fastest_clk(fastest_clk));
-        rv_tester_clkgen #(.CLOCK_FREQ_MHZ(PROFILE1_CLOCK_FREQ_MHZ[c]), .FASTEST_FREQ_MHZ(max_clock_freq_overall)) profile1_clkgen(.clk(profile1_clk[c]), .fastest_clk(fastest_clk));
-        rv_tester_clkgen #(.CLOCK_FREQ_MHZ(PROFILE2_CLOCK_FREQ_MHZ[c]), .FASTEST_FREQ_MHZ(max_clock_freq_overall)) profile2_clkgen(.clk(profile2_clk[c]), .fastest_clk(fastest_clk));
-        rv_tester_clkgen #(.CLOCK_FREQ_MHZ(PROFILE3_CLOCK_FREQ_MHZ[c]), .FASTEST_FREQ_MHZ(max_clock_freq_overall)) profile3_clkgen(.clk(profile3_clk[c]), .fastest_clk(fastest_clk));
-        rv_tester_clkgen #(.CLOCK_FREQ_MHZ(PROFILE4_CLOCK_FREQ_MHZ[c]), .FASTEST_FREQ_MHZ(max_clock_freq_overall)) profile4_clkgen(.clk(profile4_clk[c]), .fastest_clk(fastest_clk));
-        rv_tester_clkgen #(.CLOCK_FREQ_MHZ(PROFILE5_CLOCK_FREQ_MHZ[c]), .FASTEST_FREQ_MHZ(max_clock_freq_overall)) profile5_clkgen(.clk(profile5_clk[c]), .fastest_clk(fastest_clk));
-        rv_tester_clkgen #(.CLOCK_FREQ_MHZ(PROFILE6_CLOCK_FREQ_MHZ[c]), .FASTEST_FREQ_MHZ(max_clock_freq_overall)) profile6_clkgen(.clk(profile6_clk[c]), .fastest_clk(fastest_clk));
+        for (genvar m = 0; m < NUM_CLK_MODES; m++) begin : g_mode_clkgen
+          rv_tester_clkgen #(.CLOCK_FREQ_MHZ(ALL_PROFILE_FREQS[m][c]), .FASTEST_FREQ_MHZ(max_clock_freq_overall)) clkgen(.clk(mode_clks[c][m]), .fastest_clk(fastest_clk));
+        end
 
-
-        rv_tester_clk_mux #(.NUM_INPUTS(7)) i_clk_mux (
-            .clks_i      ({profile6_clk[c], profile5_clk[c], profile4_clk[c],
-                           profile3_clk[c], profile2_clk[c], profile1_clk[c], def_clk[c]}),
+        rv_tester_clk_mux #(.NUM_INPUTS(NUM_CLK_MODES)) i_clk_mux (
+            .clks_i      (mode_clks[c]),
             .async_sel_i (clock_mode),
             .clk_o       (clk[c])
         );
@@ -250,19 +250,19 @@ module rv_tester
 `ifndef CLK_MUX_UNSUPPORTED
   always @(posedge dut_clk[TB_CLK_IDX])begin
     if (rv_tester_reset & !rerun_now_ff)begin
-      clock_mode <= clk_profile[2:0];
-      rv_tester_clock_monitor(clocks, {29'b0, clk_profile[2:0]});
+      clock_mode <= clk_profile[CLK_MODE_W-1:0];
+      rv_tester_clock_monitor(clocks, 32'(clk_profile[CLK_MODE_W-1:0]));
     end
     /* verilator lint_off WIDTH */
     else if(dyn_clk_switch & (clocks >10) &  (freq_switch_ncycles != 0 && (clocks % freq_switch_ncycles) == 0)) begin
       //dynamically select clk from available profiles
       //this logic will generate the select pins of the mux ,which will switch between clks
-      if(clock_mode == 'b110) begin
-        clock_mode <= 'b1;
+      if(clock_mode == CLK_MODE_W'(NUM_CLK_PROFILES)) begin
+        clock_mode <= CLK_MODE_W'(1);
         rv_tester_clock_monitor(clocks, 'b1);
       end else begin
         clock_mode <= clock_mode + 1'b1;
-        rv_tester_clock_monitor(clocks, {29'b0, clock_mode + 1'b1});
+        rv_tester_clock_monitor(clocks, 32'(clock_mode) + 1);
       end
     end
     /* verilator lint_on WIDTH */
@@ -485,7 +485,7 @@ module rv_tester
         cvm_debug_cycle_off  <= cvm_plusargs::get_ulongint("cvm_debug_cycle_off");
       end
     end
-    if (!dyn_clk_switch) clock_mode <= clk_profile[2:0];
+    if (!dyn_clk_switch) clock_mode <= clk_profile[CLK_MODE_W-1:0];
     num_reruns      <= num_reruns - int'(rerun_now);
     if (num_reruns < 0) begin
       num_reruns  <= cvm_plusargs::get_int("num_reruns");
@@ -743,11 +743,11 @@ end
 
   /* RVDE-27024
    * function void rv_tester_set_clock_mode (input int unsigned new_clock_mode);
-   *     if (new_clock_mode <= 3'b110) begin
-   *         clock_mode <= new_clock_mode[2:0];
+   *     if (new_clock_mode <= NUM_CLK_PROFILES) begin
+   *         clock_mode <= new_clock_mode[CLK_MODE_W-1:0];
    *         $display("<%0d> rv_tester_set_clock_mode: clock_mode changed to %0d", clocks, new_clock_mode);
    *     end else begin
-   *         $display("<%0d> rv_tester_set_clock_mode: Invalid clock_mode %0d, valid range is 0-6", clocks, new_clock_mode);
+   *         $display("<%0d> rv_tester_set_clock_mode: Invalid clock_mode %0d, valid range is 0-%0d", clocks, new_clock_mode, NUM_CLK_PROFILES);
    *     end
    * endfunction
    * export "DPI-C" function rv_tester_set_clock_mode;
